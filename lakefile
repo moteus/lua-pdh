@@ -1,0 +1,31 @@
+PROJECT = 'pdh'
+
+INITLAKEFILE()
+
+lake.define_need('pdh', function()
+  return {
+    libs = {'pdh'};
+  }
+end)
+
+pdh = c.shared{'core',
+  base     = 'src',
+  src      = {'*.c'},
+  needs    = {LUA_NEED, 'pdh', 'windows'},
+  def      = 'lpdh.def',
+  defines  = DEFINES,
+  dynamic  = DYNAMIC,
+  strip    = true,
+}
+
+target('build', pdh)
+
+install = target('install', {
+  file.group{odir = J(LIBDIR, PROJECT);  src = pdh};
+})
+
+target('test', install, function()
+  run_test("test.lua")
+end)
+
+default('build')
