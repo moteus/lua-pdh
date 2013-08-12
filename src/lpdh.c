@@ -171,6 +171,15 @@ typedef struct lpdh_error_tag{
 
 //}
 
+//{
+
+#define LPDH_PROCEED_CONST()                                                    \
+  LPDH_PROCEED_CONST_NODE(PDH_FMT_NOSCALE)                                      \
+  LPDH_PROCEED_CONST_NODE(PDH_FMT_NOCAP100)                                     \
+  LPDH_PROCEED_CONST_NODE(PDH_FMT_1000)                                         \
+
+//}
+
 static lpdh_counter_t *lpdh_getcounter_at (lua_State *L, int i);
 
 //{ Error
@@ -261,7 +270,7 @@ static void lpdh_error_pushstring(lua_State *L, lpdh_error_t *err){
   void *ptr_status = (void*)err->status;
   LPDH_STATIC_ASSERT(sizeof(err->status) <= (sizeof(void*)));
   lpdh_error_push_message(L, err, "unknown");
-  lua_pushfstring(L, "[%s] %s (%p)",
+  lua_pushfstring(L, "[%s] %s (0x%p)",
     lpdh_error_mnemo_(err, "UNKNOWN"),
     lua_tostring(L, -1),
     ptr_status
@@ -651,14 +660,28 @@ static int lpdh_counter_path(lua_State *L){
   return 1;
 }
 
+static int lpdh_counter_remove(lua_State *L){
+  lpdh_counter_t *counter = lpdh_getcounter_at(L, 1);
+  if(counter->flags & FLAG_OPEN){
+    PDH_STATUS Status = PdhRemoveCounter(counter->handle);
+    if(ERROR_SUCCESS != Status){
+      return lpdh_error_pdh(L, Status);
+    }
+    counter->flags &= ~FLAG_OPEN;
+  }
+  return lpdh_pass(L);
+}
+
 #define LPDH_IS_CSTATUS_VALID(S) (((S)==PDH_CSTATUS_VALID_DATA)||((S)==PDH_CSTATUS_NEW_DATA))
 
-#define define_counter_as_XXX(CNAME, TNAME) static int lpdh_counter_as_##TNAME(lua_State *L){      \
+#define define_counter_as_XXX(CNAME, TNAME)                                                 \
+static int lpdh_counter_as_##TNAME(lua_State *L){                                           \
   lpdh_counter_t *counter = lpdh_getcounter_at(L, 1);                                       \
   PDH_FMT_COUNTERVALUE value;                                                               \
   DWORD CounterType;                                                                        \
+  DWORD scale = luaL_optint(L, 2, 0);                                                       \
   PDH_STATUS Status = PdhGetFormattedCounterValue(                                          \
-    counter->handle, PDH_FMT_##CNAME, &CounterType,                                         \
+    counter->handle, scale | PDH_FMT_##CNAME, &CounterType,                                 \
     &value                                                                                  \
   );                                                                                        \
                                                                                             \
@@ -686,13 +709,32 @@ static int lpdh_counter_as_##TNAME##_array(lua_State *L){                       
   DWORD bufferSize = 0;                                                                     \
   DWORD itemCount = 0;                                                                      \
   PDH_FMT_COUNTERVALUE_ITEM *items = NULL;                                                  \
-  DWORD i = 0;                                                                              \
+  DWORD scale, i = 0;                                                                       \
   PDH_STATUS Status;                                                                        \
-  int cbIndex = lua_gettop(L)>1?2:0;                                                        \
-  lua_settop(L, 2);                                                                         \
+  int cbIndex;                                                                              \
+  lua_settop(L, 3);                                                                         \
+  if(!lua_isnil(L, 3)){                                                                     \
+    cbIndex = 3;                                                                            \
+    scale = (DWORD)luaL_optint(L, 2, 0);                                                    \
+  }                                                                                         \
+  else if(!lua_isnil(L, 2)){                                                                \
+    lua_pop(L, 1);                                                                          \
+    if(lua_type(L,2) == LUA_TNUMBER){                                                       \
+      cbIndex = 0;                                                                          \
+      scale = (DWORD)lua_tonumber(L, 2);                                                    \
+    }                                                                                       \
+    else{                                                                                   \
+      cbIndex = 2;                                                                          \
+      scale = 0;                                                                            \
+    }                                                                                       \
+  }                                                                                         \
+  else{                                                                                     \
+      cbIndex = 0;                                                                          \
+      scale = 0;                                                                            \
+  }                                                                                         \
                                                                                             \
   Status = PdhGetFormattedCounterArray(                                                     \
-    counter->handle, PDH_FMT_##CNAME,                                                       \
+    counter->handle, scale | PDH_FMT_##CNAME,                                                       \
     &bufferSize, &itemCount, items                                                          \
   );                                                                                        \
                                                                                             \
@@ -706,7 +748,7 @@ static int lpdh_counter_as_##TNAME##_array(lua_State *L){                       
   }                                                                                         \
                                                                                             \
   Status = PdhGetFormattedCounterArray(                                                     \
-    counter->handle, PDH_FMT_##CNAME,                                                       \
+    counter->handle, scale | PDH_FMT_##CNAME,                                                       \
     &bufferSize, &itemCount, items                                                          \
   );                                                                                        \
                                                                                             \
@@ -818,10 +860,12 @@ static int lpdh_query_add_counter(lua_State *L){
     lua_remove(L, -2);
   }
   counter = lpdh_getcounter_at(L, 2);
+  // if(counter->flags & FLAG_OPEN) return lpdh_error_library(L, LPDH_COUNTER_ALREADY_OPEN); 
   Status = PdhAddCounter(qry->handle, counter->path, 0, &counter->handle);
   if (Status != ERROR_SUCCESS){
     return lpdh_error_pdh(L, Status);
   }
+  counter->flags |= FLAG_OPEN;
   lua_settop(L, 2); // leave counter on top
   return 1;
 }
@@ -914,9 +958,11 @@ static const struct luaL_Reg lpdh_query_meth[] = {
 };
 
 static const struct luaL_Reg lpdh_counter_meth[] = {
+  {"__gc",             lpdh_counter_remove             },
   {"path",             lpdh_counter_path               },
   {"translate",        lpdh_path_translate             },
   {"expand",           lpdh_path_expand                },
+  {"remove",           lpdh_counter_remove             },
   {"as_double",        lpdh_counter_as_double          },
   {"as_long",          lpdh_counter_as_long            },
   {"as_large",         lpdh_counter_as_large           },
@@ -943,7 +989,10 @@ int luaopen_pdh_core(lua_State*L){
   lua_newtable(L);
   luaL_setfuncs(L, lpdh_lib, 0);
 #define LPDH_PROCEED_ERROR_NODE(VALUE) lua_pushnumber(L, VALUE); lua_setfield(L, -2, #VALUE);
+#define LPDH_PROCEED_CONST_NODE LPDH_PROCEED_ERROR_NODE
   LPDH_PROCEED_ERROR()
+  LPDH_PROCEED_CONST()
+#undef LPDH_PROCEED_CONST_NODE
 #undef LPDH_PROCEED_ERROR_NODE
 
   // to correct work with error type
