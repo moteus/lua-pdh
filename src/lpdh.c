@@ -40,6 +40,8 @@ typedef struct lpdh_error_tag{
 //{ LPDH_PROCEED_ERROR
 
 #define LPDH_PROCEED_ERROR()                                                       \
+  LPDH_PROCEED_ERROR_NODE(ERROR_SUCCESS)                                           \
+                                                                                   \
   LPDH_PROCEED_ERROR_NODE(PDH_CSTATUS_VALID_DATA)                                  \
   LPDH_PROCEED_ERROR_NODE(PDH_CSTATUS_NEW_DATA)                                    \
   LPDH_PROCEED_ERROR_NODE(PDH_CSTATUS_NO_MACHINE)                                  \
@@ -126,7 +128,7 @@ typedef struct lpdh_error_tag{
   LPDH_PROCEED_ERROR_NODE(PDH_UNMATCHED_APPEND_COUNTER)                            \
   LPDH_PROCEED_ERROR_NODE(PDH_SQL_ALTER_DETAIL_FAILED)                             \
   LPDH_PROCEED_ERROR_NODE(PDH_QUERY_PERF_DATA_TIMEOUT)                             \
-  LPDH_PROCEED_ERROR_NODE(ERROR_SUCCESS)                                           \
+                                                                                   \
   LPDH_PROCEED_ERROR_NODE(ERROR_INVALID_FUNCTION)                                  \
   LPDH_PROCEED_ERROR_NODE(ERROR_FILE_NOT_FOUND)                                    \
   LPDH_PROCEED_ERROR_NODE(ERROR_PATH_NOT_FOUND)                                    \
@@ -181,7 +183,7 @@ static lpdh_error_t *lpdh_geterror_at (lua_State *L, int i) {
 
 //{ push error
 
-static int lpdh_push_error_system(lua_State *L, DWORD status){
+static int lpdh_error_push_system_message(lua_State *L, DWORD status){
   char errbuff[256];
   int sz;
   sz = FormatMessage(
@@ -194,7 +196,7 @@ static int lpdh_push_error_system(lua_State *L, DWORD status){
   return 1;
 }
 
-static int lpdh_push_error_pdh(lua_State *L, DWORD status){
+static int lpdh_error_push_pdh_message(lua_State *L, DWORD status){
   char errbuff[256];
   int sz;
   sz = FormatMessage(
@@ -203,21 +205,21 @@ static int lpdh_push_error_pdh(lua_State *L, DWORD status){
     MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT), // Default language
     errbuff, sizeof(errbuff), NULL);
   if(sz == 0)
-    return lpdh_push_error_system(L, status);
+    return lpdh_error_push_system_message(L, status);
   if(sz > 1) sz -= 2; 
   lua_pushlstring(L, errbuff, sz);
   return 1;
 }
 
-static int lpdh_push_error_library(lua_State *L, DWORD status){
+static int lpdh_error_push_library_message(lua_State *L, DWORD status){
   lua_pushstring(L,"unknown");
   return 1;
 }
 
-static int lpdh_push_error_message(lua_State *L, lpdh_error_t *err, const char* def){
-  if(err->type == LPDH_ERROR_SYSTEM)  return lpdh_push_error_system  (L, err->status);
-  if(err->type == LPDH_ERROR_PDH)     return lpdh_push_error_pdh     (L, err->status);
-  if(err->type == LPDH_ERROR_LIBRARY) return lpdh_push_error_library (L, err->status);
+static int lpdh_error_push_message(lua_State *L, lpdh_error_t *err, const char* def){
+  if(err->type == LPDH_ERROR_PDH)     return lpdh_error_push_pdh_message     (L, err->status);
+  if(err->type == LPDH_ERROR_SYSTEM)  return lpdh_error_push_system_message  (L, err->status);
+  if(err->type == LPDH_ERROR_LIBRARY) return lpdh_error_push_library_message (L, err->status);
   lua_pushstring(L, def);
   return 1;
 }
@@ -226,30 +228,30 @@ static int lpdh_push_error_message(lua_State *L, lpdh_error_t *err, const char* 
 
 //{ mnemo
 
-static const char* lpdh_status_mnemo_system(DWORD status, const char* def){
+static const char* lpdh_error_system_mnemo(DWORD status, const char* def){
 #define LPDH_PROCEED_ERROR_NODE(VALUE) if(status == VALUE){static const char *name = #VALUE; return name;}
   LPDH_PROCEED_ERROR()
 #undef LPDH_PROCEED_ERROR_NODE
   return def;
 }
 
-static const char* lpdh_status_mnemo_pdh(DWORD status, const char* def){
-  return lpdh_status_mnemo_system(status, def);
+static const char* lpdh_error_pdh_mnemo(DWORD status, const char* def){
+  return lpdh_error_system_mnemo(status, def);
 }
 
-static const char* lpdh_status_mnemo_library(DWORD status, const char* def){
+static const char* lpdh_error_library_mnemo(DWORD status, const char* def){
   return def;
 }
 
-static const char* lpdh_status_mnemo(lpdh_error_t *err, const char* def){
-  if(err->type == LPDH_ERROR_SYSTEM)  return lpdh_status_mnemo_system  (err->status, def);
-  if(err->type == LPDH_ERROR_PDH)     return lpdh_status_mnemo_pdh     (err->status, def);
-  if(err->type == LPDH_ERROR_LIBRARY) return lpdh_status_mnemo_library (err->status, def);
+static const char* lpdh_error_mnemo_(lpdh_error_t *err, const char* def){
+  if(err->type == LPDH_ERROR_PDH)     return lpdh_error_pdh_mnemo     (err->status, def);
+  if(err->type == LPDH_ERROR_SYSTEM)  return lpdh_error_system_mnemo  (err->status, def);
+  if(err->type == LPDH_ERROR_LIBRARY) return lpdh_error_library_mnemo (err->status, def);
   return def;
 }
 
-static int lpdh_push_error_mnemo(lua_State *L, lpdh_error_t *err, const char* def){
-  lua_pushstring(L, lpdh_status_mnemo(err, def));
+static int lpdh_error_push_mnemo(lua_State *L, lpdh_error_t *err, const char* def){
+  lua_pushstring(L, lpdh_error_mnemo_(err, def));
   return 1;
 }
 
@@ -257,9 +259,9 @@ static int lpdh_push_error_mnemo(lua_State *L, lpdh_error_t *err, const char* de
 
 static void lpdh_error_pushstring(lua_State *L, lpdh_error_t *err){
   LPDH_STATIC_ASSERT(sizeof(err->status) == (sizeof(void*)));
-  lpdh_push_error_message(L, err, "unknown");
+  lpdh_error_push_message(L, err, "unknown");
   lua_pushfstring(L, "[%s] %s (%p)",
-    lpdh_status_mnemo(err, "UNKNOWN"),
+    lpdh_error_mnemo_(err, "UNKNOWN"),
     lua_tostring(L, -1),
     err->status
   );
@@ -267,11 +269,11 @@ static void lpdh_error_pushstring(lua_State *L, lpdh_error_t *err){
 }
 
 static int lpdh_error_mnemo(lua_State *L){
-  return lpdh_push_error_mnemo(L, lpdh_geterror_at(L,1), "<UNKNOWN>");
+  return lpdh_error_push_mnemo(L, lpdh_geterror_at(L,1), "<UNKNOWN>");
 }
 
 static int lpdh_error_message(lua_State *L){
-  return lpdh_push_error_message(L, lpdh_geterror_at(L,1), "unknown");
+  return lpdh_error_push_message(L, lpdh_geterror_at(L,1), "unknown");
 }
 
 static int lpdh_error_number(lua_State *L){
@@ -418,9 +420,7 @@ static int lpdh_load_en_counter_names(lua_State *L){
     lua_pop(L, 1);
     Status = lpdh_push_en_counter_names(L);
     if(Status != ERROR_SUCCESS){
-      lua_pushnil(L);
-      lua_pushnumber(L, Status);
-      return 2;
+      return lpdh_error_system(L, Status);
     }
     lua_settop(L, top);
     lua_pushvalue(L, -1);
@@ -434,7 +434,7 @@ static int lpdh_load_en_counter_names(lua_State *L){
 
 //{ Path
 
-static PDH_STATUS lpdh_translate_name_ex(lua_State *L, const char *machineName, const char *name, DWORD *pIndex, char** const result){
+static PDH_STATUS lpdh_translate_name(lua_State *L, const char *machineName, const char *name, DWORD *pIndex, char** const result){
   DWORD Index;
 
   if(!pIndex){
@@ -477,6 +477,11 @@ static PDH_STATUS lpdh_translate_name_ex(lua_State *L, const char *machineName, 
 }
 
 static int lpdh_path_translate(lua_State *L){
+//! @fixme ????
+// \Processor(*)\% Processor Time => \Processor(*#0)\% Processor Time
+// do we need remove instance name manually or just relay on PdhMakeCounterPath?
+// On XP it works correctly
+
   PDH_STATUS Status;
   PPDH_COUNTER_PATH_ELEMENTS elements = 0;
   char *objectName = 0, *counterName = 0;
@@ -506,10 +511,10 @@ static int lpdh_path_translate(lua_State *L){
     }
   }
 
-  Status = lpdh_translate_name_ex(L, elements->szMachineName, elements->szObjectName, 0, &objectName);
+  Status = lpdh_translate_name(L, elements->szMachineName, elements->szObjectName, 0, &objectName);
   if(!objectName) goto cleanup;
 
-  Status = lpdh_translate_name_ex(L, elements->szMachineName, elements->szCounterName, 0, &counterName);
+  Status = lpdh_translate_name(L, elements->szMachineName, elements->szCounterName, 0, &counterName);
   if(!counterName) goto cleanup;
 
   elements->szCounterName = counterName;
@@ -584,7 +589,7 @@ static int lpdh_translate_element(lua_State *L){
   int iName = (lua_gettop(L) == 1)?1:2;
   PDH_STATUS Status;
   const char *machineName = (iName == 1)?NULL:luaL_checkstring(L, 1);
-
+ 
   if(lua_type(L, iName) == LUA_TNUMBER) Index = lua_tonumber(L, iName);
   else{
     int n;
@@ -593,7 +598,7 @@ static int lpdh_translate_element(lua_State *L){
     if(n != 1) return n;
   }
   
-  Status = lpdh_translate_name_ex(L, 0, name, &Index, &result);
+  Status = lpdh_translate_name(L, 0, name, &Index, &result);
 
   if(ERROR_SUCCESS != Status){
     if(result) free(result);
@@ -645,29 +650,116 @@ static int lpdh_counter_path(lua_State *L){
   return 1;
 }
 
-#define define_counter_as_XXX(TNAME) static int lpdh_counter_as_##TNAME(lua_State *L){      \
+#define LPDH_IS_CSTATUS_VALID(S) (((S)==PDH_CSTATUS_VALID_DATA)||((S)==PDH_CSTATUS_NEW_DATA))
+
+#define define_counter_as_XXX(CNAME, TNAME) static int lpdh_counter_as_##TNAME(lua_State *L){      \
   lpdh_counter_t *counter = lpdh_getcounter_at(L, 1);                                       \
   PDH_FMT_COUNTERVALUE value;                                                               \
   DWORD CounterType;                                                                        \
   PDH_STATUS Status = PdhGetFormattedCounterValue(                                          \
-    counter->handle, PDH_FMT_DOUBLE, &CounterType,                                          \
+    counter->handle, PDH_FMT_##CNAME, &CounterType,                                         \
     &value                                                                                  \
   );                                                                                        \
                                                                                             \
   if(Status != ERROR_SUCCESS){                                                              \
-    return lpdh_error_pdh(L, Status);                                                    \
+    return lpdh_error_pdh(L, Status);                                                       \
   }                                                                                         \
                                                                                             \
-  if((value.CStatus == PDH_CSTATUS_VALID_DATA) || (value.CStatus == PDH_CSTATUS_NEW_DATA)){ \
+  if(LPDH_IS_CSTATUS_VALID(value.CStatus)){                                                 \
     lua_pushnumber(L, value.##TNAME##Value);                                                \
     return 1;                                                                               \
   }                                                                                         \
-  return lpdh_error_pdh(L, value.CStatus);                                               \
+  return lpdh_error_pdh(L, value.CStatus);                                                  \
 }
 
-define_counter_as_XXX(double);
-define_counter_as_XXX(long);
-define_counter_as_XXX(large);
+define_counter_as_XXX(DOUBLE, double);
+define_counter_as_XXX(LONG,   long  );
+define_counter_as_XXX(LARGE,  large );
+
+#undef define_counter_as_XXX
+
+#define define_counter_as_XXX_array(CNAME, TNAME)                                           \
+static int lpdh_counter_as_##TNAME##_array(lua_State *L){                                   \
+  lpdh_counter_t *counter = lpdh_getcounter_at(L, 1);                                       \
+                                                                                            \
+  DWORD bufferSize = 0;                                                                     \
+  DWORD itemCount = 0;                                                                      \
+  PDH_FMT_COUNTERVALUE_ITEM *items = NULL;                                                  \
+  DWORD i = 0;                                                                              \
+  PDH_STATUS Status;                                                                        \
+  int cbIndex = lua_gettop(L)>1?2:0;                                                        \
+  lua_settop(L, 2);                                                                         \
+                                                                                            \
+  Status = PdhGetFormattedCounterArray(                                                     \
+    counter->handle, PDH_FMT_##CNAME,                                                       \
+    &bufferSize, &itemCount, items                                                          \
+  );                                                                                        \
+                                                                                            \
+  if (PDH_MORE_DATA != Status){                                                             \
+    return lpdh_error_pdh(L, Status);                                                       \
+  }                                                                                         \
+                                                                                            \
+  items = (PDH_FMT_COUNTERVALUE_ITEM *) malloc(bufferSize);                                 \
+  if(!items){                                                                               \
+    return lpdh_error_pdh(L, PDH_MEMORY_ALLOCATION_FAILURE);                                \
+  }                                                                                         \
+                                                                                            \
+  Status = PdhGetFormattedCounterArray(                                                     \
+    counter->handle, PDH_FMT_##CNAME,                                                       \
+    &bufferSize, &itemCount, items                                                          \
+  );                                                                                        \
+                                                                                            \
+  if (ERROR_SUCCESS != Status){                                                             \
+    free(items);                                                                            \
+    return lpdh_error_pdh(L, Status);                                                       \
+  }                                                                                         \
+                                                                                            \
+  lua_newtable(L);                                                                          \
+  for(i = 0; i < itemCount; ++i){                                                           \
+    PDH_FMT_COUNTERVALUE *value = &items[i].FmtValue;                                       \
+    if(!cbIndex){                                                                           \
+      lua_newtable(L);                                                                      \
+      lua_pushstring(L, items[i].szName);                                                   \
+      lua_rawseti(L, -2, 1);                                                                \
+      if(LPDH_IS_CSTATUS_VALID(value->CStatus)){                                            \
+        lua_pushnumber(L, value->##TNAME##Value);                                           \
+      }                                                                                     \
+      else{                                                                                 \
+        lpdh_error_push(L, LPDH_ERROR_PDH, value->CStatus);                                 \
+      }                                                                                     \
+      lua_rawseti(L, -2, 2);                                                                \
+      lua_rawseti(L, -2, i+1);                                                              \
+    }                                                                                       \
+    else{                                                                                   \
+      int ret, top = lua_gettop(L);                                                         \
+      lua_pushvalue(L, cbIndex);                                                            \
+      lua_pushstring(L, items[i].szName);                                                   \
+      if(LPDH_IS_CSTATUS_VALID(value->CStatus)){                                            \
+        lua_pushnumber(L, value->##TNAME##Value);                                           \
+      }                                                                                     \
+      else{                                                                                 \
+        lpdh_error_push(L, LPDH_ERROR_PDH, value->CStatus);                                 \
+      }                                                                                     \
+      ret = lua_pcall(L, 2, LUA_MULTRET, 0);                                                \
+      if(ret){                                                                              \
+        free(items);                                                                        \
+        return lua_error(L);                                                                \
+      }                                                                                     \
+      else if(lua_gettop(L) > top){                                                         \
+        free(items);                                                                        \
+        return lua_gettop(L) - top;                                                         \
+      }                                                                                     \
+    }                                                                                       \
+  }                                                                                         \
+  free(items);                                                                              \
+  return 1;                                                                                 \
+}                                                                                           \
+
+define_counter_as_XXX_array(DOUBLE, double);
+define_counter_as_XXX_array(LONG,   long  );
+define_counter_as_XXX_array(LARGE,  large );
+
+#undef define_counter_as_XXX_array
 
 //}
 
@@ -820,12 +912,15 @@ static const struct luaL_Reg lpdh_query_meth[] = {
 };
 
 static const struct luaL_Reg lpdh_counter_meth[] = {
-  {"path",       lpdh_counter_path         },
-  {"translate",  lpdh_path_translate       },
-  {"expand",     lpdh_path_expand          },
-  {"as_double",  lpdh_counter_as_double    },
-  {"as_long",    lpdh_counter_as_long      },
-  {"as_large",   lpdh_counter_as_large     },
+  {"path",             lpdh_counter_path               },
+  {"translate",        lpdh_path_translate             },
+  {"expand",           lpdh_path_expand                },
+  {"as_double",        lpdh_counter_as_double          },
+  {"as_long",          lpdh_counter_as_long            },
+  {"as_large",         lpdh_counter_as_large           },
+  {"as_double_array",  lpdh_counter_as_double_array    },
+  {"as_long_array",    lpdh_counter_as_long_array      },
+  {"as_large_array",   lpdh_counter_as_large_array     },
   {NULL, NULL}
 };
 

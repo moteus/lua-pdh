@@ -1,0 +1,12 @@
+*.ncb
+*.user
+*.suo
+msvc/Debug
+msvc/Release
+msvc/ipch
+*.o
+*.obj
+*.lib
+*.dll
+*.sdf
+*.opensdf
