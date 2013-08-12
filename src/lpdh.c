@@ -733,6 +733,7 @@ static int lpdh_counter_as_##TNAME##_array(lua_State *L){                       
     else{                                                                                   \
       int ret, top = lua_gettop(L);                                                         \
       lua_pushvalue(L, cbIndex);                                                            \
+      lua_pushnumber(L, i + 1);                                                             \
       lua_pushstring(L, items[i].szName);                                                   \
       if(LPDH_IS_CSTATUS_VALID(value->CStatus)){                                            \
         lua_pushnumber(L, value->##TNAME##Value);                                           \
@@ -740,7 +741,7 @@ static int lpdh_counter_as_##TNAME##_array(lua_State *L){                       
       else{                                                                                 \
         lpdh_error_push(L, LPDH_ERROR_PDH, value->CStatus);                                 \
       }                                                                                     \
-      ret = lua_pcall(L, 2, LUA_MULTRET, 0);                                                \
+      ret = lua_pcall(L, 3, LUA_MULTRET, 0);                                                \
       if(ret){                                                                              \
         free(items);                                                                        \
         return lua_error(L);                                                                \
