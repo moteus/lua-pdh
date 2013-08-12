@@ -258,12 +258,13 @@ static int lpdh_error_push_mnemo(lua_State *L, lpdh_error_t *err, const char* de
 //}
 
 static void lpdh_error_pushstring(lua_State *L, lpdh_error_t *err){
-  LPDH_STATIC_ASSERT(sizeof(err->status) == (sizeof(void*)));
+  void *ptr_status = (void*)err->status;
+  LPDH_STATIC_ASSERT(sizeof(err->status) <= (sizeof(void*)));
   lpdh_error_push_message(L, err, "unknown");
   lua_pushfstring(L, "[%s] %s (%p)",
     lpdh_error_mnemo_(err, "UNKNOWN"),
     lua_tostring(L, -1),
-    err->status
+    ptr_status
   );
   lua_remove(L, -2);
 }
@@ -447,7 +448,7 @@ static PDH_STATUS lpdh_translate_name(lua_State *L, const char *machineName, con
     lua_pushstring(L, name);
     lua_rawget(L, -2);
     if(lua_isnumber(L, -1)){
-      *pIndex = lua_tonumber(L, -1);
+      *pIndex = (DWORD)lua_tonumber(L, -1);
       lua_pop(L, 1);
     }
     else{ // index not found
@@ -590,7 +591,7 @@ static int lpdh_translate_element(lua_State *L){
   PDH_STATUS Status;
   const char *machineName = (iName == 1)?NULL:luaL_checkstring(L, 1);
  
-  if(lua_type(L, iName) == LUA_TNUMBER) Index = lua_tonumber(L, iName);
+  if(lua_type(L, iName) == LUA_TNUMBER) Index = (DWORD)lua_tonumber(L, iName);
   else{
     int n;
     name = luaL_checkstring(L, iName);

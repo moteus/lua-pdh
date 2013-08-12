@@ -10,3 +10,5 @@ msvc/ipch
 *.dll
 *.sdf
 *.opensdf
+*.exp
+*.d
