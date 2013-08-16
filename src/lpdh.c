@@ -2,7 +2,7 @@
 #include "l52util.h"
 #include <assert.h>
 #include <Pdh.h>
-#include <pdhmsg.h>
+#include <PdhMsg.h>
 
 
 #define LPDH_STATIC_ASSERT(A) {(int(*)[(A)?1:0])0;}
@@ -206,18 +206,23 @@ static int lpdh_error_push_system_message(lua_State *L, DWORD status){
 }
 
 static int lpdh_error_push_pdh_message(lua_State *L, DWORD status){
-  char errbuff[256];
-  int sz;
-  sz = FormatMessage(
-    FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS |  FORMAT_MESSAGE_FROM_HMODULE,
-    GetModuleHandle("PDH.DLL"),status,
-    MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT), // Default language
-    errbuff, sizeof(errbuff), NULL);
-  if(sz == 0)
-    return lpdh_error_push_system_message(L, status);
-  if(sz > 1) sz -= 2; 
-  lua_pushlstring(L, errbuff, sz);
-  return 1;
+  HMODULE hPDH = GetModuleHandle("PDH.DLL");
+  if(hPDH){
+    char errbuff[256];
+    int sz;
+    sz = FormatMessage(
+      FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS |  FORMAT_MESSAGE_FROM_HMODULE,
+      hPDH,status,
+      MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT), // Default language
+      errbuff, sizeof(errbuff), NULL
+     );
+    if(sz){
+      if(sz > 1) sz -= 2;
+      lua_pushlstring(L, errbuff, sz);
+      return 1;
+    }
+  }
+  return lpdh_error_push_system_message(L, status);
 }
 
 static int lpdh_error_push_library_message(lua_State *L, DWORD status){
@@ -734,7 +739,7 @@ static int lpdh_counter_as_##TNAME##_array(lua_State *L){                       
   }                                                                                         \
                                                                                             \
   Status = PdhGetFormattedCounterArray(                                                     \
-    counter->handle, scale | PDH_FMT_##CNAME,                                                       \
+    counter->handle, scale | PDH_FMT_##CNAME,                                               \
     &bufferSize, &itemCount, items                                                          \
   );                                                                                        \
                                                                                             \
@@ -748,7 +753,7 @@ static int lpdh_counter_as_##TNAME##_array(lua_State *L){                       
   }                                                                                         \
                                                                                             \
   Status = PdhGetFormattedCounterArray(                                                     \
-    counter->handle, scale | PDH_FMT_##CNAME,                                                       \
+    counter->handle, scale | PDH_FMT_##CNAME,                                               \
     &bufferSize, &itemCount, items                                                          \
   );                                                                                        \
                                                                                             \
@@ -888,6 +893,383 @@ static int lpdh_sleep(lua_State *L){
   return 0;
 }
 
+//{ psapi (XP+)
+
+#define SET_FIELD(L, INFO, N) {lua_pushnumber(L, ((INFO).N)); lua_setfield(L, -2, #N);}
+
+#include <Psapi.h>
+#include <Winternl.h>
+
+typedef NTSTATUS (NTAPI *pfnNtQueryInformationProcess)(
+  IN  HANDLE ProcessHandle,
+  IN  PROCESSINFOCLASS ProcessInformationClass,
+  OUT PVOID ProcessInformation,
+  IN  ULONG ProcessInformationLength,
+  OUT PULONG ReturnLength    OPTIONAL
+);
+
+static HMODULE hNtDll = NULL;
+
+static pfnNtQueryInformationProcess pNtQueryInformationProcess = NULL;
+
+//{ Utils
+
+static DWORD lpsapi_set_process_privilege(HANDLE hProcess, LPCTSTR Privilege, BOOL bEnable){
+  HANDLE hToken;
+  TOKEN_PRIVILEGES tkp;
+  DWORD status;
+
+  // получаем токен процесса
+  if(!OpenProcessToken(hProcess, TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY, &hToken))
+    return GetLastError();
+
+  // получаем LUID для указаной привилегии
+  if(!LookupPrivilegeValue(NULL, Privilege, &tkp.Privileges[0].Luid)){
+    status = GetLastError();
+    CloseHandle(hProcess);
+    return status;
+  }
+
+  tkp.PrivilegeCount = 1;  //кол-во привилегий
+  tkp.Privileges[0].Attributes = bEnable ? SE_PRIVILEGE_ENABLED : 0; //значение привилегии
+
+  // Установка указаной привилегии для процесса
+  if(!AdjustTokenPrivileges(hToken, FALSE, &tkp, 0, (PTOKEN_PRIVILEGES)NULL, 0)){
+    status = GetLastError();
+    CloseHandle(hProcess);
+    return status;
+  }
+
+  CloseHandle(hToken);
+  return ERROR_SUCCESS;
+}
+
+static HMODULE lpsapi_load_ntdll_(){
+  HMODULE h;
+  if(hNtDll) return hNtDll;
+
+  h = LoadLibrary("ntdll.dll");
+  if(!h) return NULL;
+
+  pNtQueryInformationProcess = (pfnNtQueryInformationProcess)GetProcAddress(h, "NtQueryInformationProcess");
+  if(!pNtQueryInformationProcess){
+    FreeLibrary(h);
+    return NULL;
+  }
+  return hNtDll=h;
+}
+
+static time_t filetime_to_timet(const FILETIME *ft){
+  ULARGE_INTEGER ull;
+  ull.LowPart = ft->dwLowDateTime;
+  ull.HighPart = ft->dwHighDateTime;
+  return ull.QuadPart / 10000000ULL - 11644473600ULL;
+}
+
+static ULONGLONG filetime_to_msec(const FILETIME *ft){
+  ULARGE_INTEGER ull;
+  ull.LowPart = ft->dwLowDateTime;
+  ull.HighPart = ft->dwHighDateTime;
+  return ull.QuadPart / 10000ULL;
+}
+
+//}
+
+static int lpsapi_get_performance_info(lua_State *L){
+  PERFORMANCE_INFORMATION info;
+  BOOL ret = GetPerformanceInfo(&info,sizeof(info));
+  if(!ret){
+    return lpdh_error_system(L, GetLastError());
+  }
+  lua_newtable(L);
+  SET_FIELD(L, info, CommitTotal       );
+  SET_FIELD(L, info, CommitLimit       );
+  SET_FIELD(L, info, CommitPeak        );
+  SET_FIELD(L, info, PhysicalTotal     );
+  SET_FIELD(L, info, PhysicalAvailable );
+  SET_FIELD(L, info, SystemCache       );
+  SET_FIELD(L, info, KernelTotal       );
+  SET_FIELD(L, info, KernelPaged       );
+  SET_FIELD(L, info, KernelNonpaged    );
+  SET_FIELD(L, info, PageSize          );
+  SET_FIELD(L, info, HandleCount       );
+  SET_FIELD(L, info, ProcessCount      );
+  SET_FIELD(L, info, ThreadCount       );
+  return 1;
+}
+
+static DWORD lpsapi_enum_processes(lua_State *L){
+  //! @todo implement callback
+  DWORD *pids, bytes, pids_size = 128 * sizeof(DWORD);
+  int i, n;
+
+  while(1){
+    pids = (DWORD*)malloc(pids_size);
+    if(!pids){
+      //! @fixme use system error
+      return lpdh_error_pdh(L, PDH_MEMORY_ALLOCATION_FAILURE);
+    }
+
+    if(!EnumProcesses(pids, pids_size, &bytes)){
+      DWORD status = GetLastError();
+      free(pids);
+      return lpdh_error_system(L, status);
+    }
+
+    if(bytes >= pids_size){
+      free(pids);
+      pids_size = ((pids_size / sizeof(DWORD)) * 1.5) * sizeof(DWORD);
+      continue;
+    }
+
+    lua_newtable(L);
+    n = bytes / sizeof(DWORD);
+    for(i = 0;i<n;++i){
+      lua_pushnumber(L, pids[i]);
+      lua_rawseti(L, -2, i + 1);
+    }
+    free(pids);
+    return 1;
+  }
+}
+
+//{ psapi process
+
+static const char *LPSAPI_PROCESS   = "PSAPI Process";
+
+typedef struct lpsapi_process_tag{
+  FLAG_TYPE flags;
+  HANDLE    handle;
+} lpsapi_process_t;
+
+static lpsapi_process_t *lpsapi_getprocess_at (lua_State *L, int i, int checkOpen){
+  lpsapi_process_t *process = (lpsapi_process_t *)lutil_checkudatap (L, i, LPSAPI_PROCESS);
+  luaL_argcheck (L, process != NULL, 1, "PSAPI Process expected");
+  luaL_argcheck (L, !(process->flags & FLAG_DESTROYED), 1, "PSAPI Process is destroyed");
+  if(checkOpen == 0)luaL_argcheck (L, !(process->flags & FLAG_OPEN), 1, "PSAPI Process is opened");
+  if(checkOpen == 1)luaL_argcheck (L,  (process->flags & FLAG_OPEN), 1, "PSAPI Process is closed");
+  return process;
+}
+
+static lpsapi_process_t *lpsapi_process_alloc(lua_State *L){
+  lpsapi_process_t *process = lutil_newudatap(L, lpsapi_process_t, LPSAPI_PROCESS);
+  memset(process, 0, sizeof(lpsapi_process_t));
+  return process;
+}
+
+static int lpsapi_process_open(lua_State *L){
+  lpsapi_process_t *process = lpsapi_getprocess_at(L, 1, -1);
+  DWORD pid, accessFlags = PROCESS_QUERY_INFORMATION | PROCESS_VM_READ;
+  int top = lua_gettop(L);
+
+  if(process->flags & FLAG_OPEN){
+    assert(!!process->handle);
+    CloseHandle(process->handle);
+    process->handle = 0;
+    process->flags &= ~FLAG_OPEN;
+  }
+
+  if(top == 1){
+    process->handle = GetCurrentProcess();
+  }
+  else{
+    pid = (DWORD)luaL_checkint(L, 2);
+    process->handle = OpenProcess(accessFlags, FALSE, pid);
+  }
+
+  if(!process->handle) return lpdh_error_system(L, GetLastError());
+  process->flags |= FLAG_OPEN;
+
+  lua_settop(L, 1);
+  return 1;
+}
+
+static int lpsapi_process_new(lua_State *L){
+  lpsapi_process_t *process = lpsapi_process_alloc(L);
+  lua_insert(L, 1);
+  return lpsapi_process_open(L);
+}
+
+static int lpsapi_process_destroy(lua_State *L){
+  lpsapi_process_t *process = (lpsapi_process_t *)lutil_checkudatap (L, 1, LPSAPI_PROCESS);
+  luaL_argcheck (L, process != NULL, 1, "PSAPI Process expected");
+
+  if(process->flags & FLAG_DESTROYED) return 0;
+
+  if(process->flags & FLAG_OPEN){
+    assert(!!process->handle);
+    CloseHandle(process->handle);
+    process->handle = 0;
+    process->flags &= ~FLAG_OPEN;
+  }
+
+  process->flags |= FLAG_DESTROYED;
+
+  return lpdh_pass(L);
+}
+
+static int lpsapi_process_destroyed(lua_State *L){
+  lpsapi_process_t *process = (lpsapi_process_t *)lutil_checkudatap (L, 1, LPSAPI_PROCESS);
+  luaL_argcheck (L, process != NULL, 1, "PSAPI Process expected");
+  lua_pushboolean(L, process->flags & FLAG_DESTROYED);
+  return 1;
+}
+
+static int lpsapi_process_close(lua_State *L){
+  lpsapi_process_t *process = lpsapi_getprocess_at(L, 1, -1);
+  lua_settop(L, 1);
+  if(process->flags & FLAG_OPEN){
+    assert(!!process->handle);
+    CloseHandle(process->handle);
+    process->handle = 0;
+    process->flags &= ~FLAG_OPEN;
+  }
+  return 1;
+}
+
+static int lpsapi_process_closed(lua_State *L){
+  lpsapi_process_t *process = lpsapi_getprocess_at(L, 1, -1);
+  lua_pushboolean(L, !(process->flags & FLAG_OPEN));
+  return 1;
+}
+
+static int lpsapi_process_memory_info(lua_State *L){
+  lpsapi_process_t *process = lpsapi_getprocess_at(L, 1, 1);
+  PROCESS_MEMORY_COUNTERS_EX counters;
+  DWORD size = sizeof(counters);
+
+  memset(&counters, 0, sizeof(counters));
+  counters.cb = size;
+
+  if(!GetProcessMemoryInfo(process->handle, (PROCESS_MEMORY_COUNTERS*)&counters, size)){
+    return lpdh_error_system(L, GetLastError());
+  }
+
+  lua_newtable(L);
+  SET_FIELD(L, counters, PageFaultCount);
+  SET_FIELD(L, counters, PeakWorkingSetSize);
+  SET_FIELD(L, counters, WorkingSetSize);
+  SET_FIELD(L, counters, QuotaPeakPagedPoolUsage);
+  SET_FIELD(L, counters, QuotaPagedPoolUsage);
+  SET_FIELD(L, counters, QuotaPeakNonPagedPoolUsage);
+  SET_FIELD(L, counters, QuotaNonPagedPoolUsage);
+  SET_FIELD(L, counters, PagefileUsage);
+  SET_FIELD(L, counters, PeakPagefileUsage);
+  SET_FIELD(L, counters, PrivateUsage);
+  return 1;
+}
+
+static int lpsapi_process_module_name(lua_State *L){
+  lpsapi_process_t *process = lpsapi_getprocess_at(L, 1, 1);
+  char path[MAX_PATH + 1];
+  DWORD size = sizeof(path);
+  size = GetModuleFileNameEx(process->handle, NULL, path, size);
+  if(size){
+    lua_pushlstring(L, path, size);
+    return 1;
+  }
+  return lpdh_error_system(L, GetLastError());
+}
+
+static int lpsapi_process_base_name(lua_State *L){
+  lpsapi_process_t *process = lpsapi_getprocess_at(L, 1, 1);
+  char path[MAX_PATH + 1];
+  DWORD size = sizeof(path);
+  size = GetModuleBaseName(process->handle, NULL, path, size);
+  if(size){
+    lua_pushlstring(L, path, size);
+    return 1;
+  }
+  return lpdh_error_system(L, GetLastError());
+}
+
+static int lpsapi_process_command_line(lua_State *L){
+  lpsapi_process_t *process = lpsapi_getprocess_at(L, 1, 1);
+  NTSTATUS Status;
+  DWORD size;
+  PPEB ppeb;
+
+  {
+    PROCESS_BASIC_INFORMATION pbi;
+    Status = pNtQueryInformationProcess(
+      process->handle, ProcessBasicInformation,
+      &pbi, sizeof(pbi), &size
+    );
+    if(Status != ERROR_SUCCESS){
+      return lpdh_error_system(L, Status);
+    }
+    ppeb = pbi.PebBaseAddress;
+  }
+
+  if(ppeb){
+    PRTL_USER_PROCESS_PARAMETERS pupp;
+    {
+      PEB peb;
+      if(!ReadProcessMemory(process->handle, ppeb, &peb, sizeof(peb), &size)){
+        return lpdh_error_system(L, GetLastError());
+     }
+      pupp = peb.ProcessParameters;
+    }
+    if(pupp){
+      RTL_USER_PROCESS_PARAMETERS upp;
+      WCHAR *buffer;
+      char *cmd_line;
+      if(!ReadProcessMemory(process->handle, pupp, &upp, sizeof(upp), &size)){
+        return lpdh_error_system(L, GetLastError());
+      }
+      size = upp.CommandLine.Length;
+      buffer = (WCHAR*)malloc(size);
+      if(!buffer){
+        //! @fixme use system error
+        return lpdh_error_pdh(L, PDH_MEMORY_ALLOCATION_FAILURE);
+      }
+      cmd_line = (char*)malloc(size / sizeof(WCHAR));
+      if(!cmd_line){
+        free(buffer);
+        //! @fixme use system error
+        return lpdh_error_pdh(L, PDH_MEMORY_ALLOCATION_FAILURE);
+      }
+      if(!ReadProcessMemory(process->handle, upp.CommandLine.Buffer, buffer, size, &size)){
+        free(cmd_line);
+        free(buffer);
+        return lpdh_error_system(L, GetLastError());
+      }
+      size = (size/sizeof(WCHAR));
+      WideCharToMultiByte(CP_ACP, 0, buffer, size, cmd_line, size, NULL, NULL);
+      free(buffer);
+      lua_pushlstring(L, cmd_line, size);
+      free(cmd_line);
+      return 1;
+    }
+  }
+  return 0;
+}
+
+static int lpsapi_process_times(lua_State *L){
+  lpsapi_process_t *process = lpsapi_getprocess_at(L, 1, 1);
+  FILETIME creationTime, exitTime, kernelTime, userTime;
+  BOOL ret = GetProcessTimes(process->handle, &creationTime, &exitTime, &kernelTime, &userTime);
+  if(!ret){
+    return lpdh_error_system(L, GetLastError());
+  }
+  lua_pushnumber(L, filetime_to_timet(&creationTime));
+  lua_pushnumber(L, filetime_to_timet(&exitTime));
+  lua_pushnumber(L, filetime_to_msec(&kernelTime));
+  lua_pushnumber(L, filetime_to_msec(&userTime));
+  return 4;
+}
+
+static int lpsapi_process_pid(lua_State *L){
+  lpsapi_process_t *process = lpsapi_getprocess_at(L, 1, 1);
+  lua_pushnumber(L, GetProcessId(process->handle));
+  return 1;
+}
+
+//}
+
+#undef SET_FIELD
+//}
+
 static int lpdh_counter_dialog(lua_State *L){
   PDH_STATUS Status;
   PDH_BROWSE_DLG_CONFIG BrowseDlgData;
@@ -937,14 +1319,15 @@ static int lpdh_counter_dialog(lua_State *L){
 }
 
 static const struct luaL_Reg lpdh_lib[] = {
-  {"disabled",           lpdh_disabled           },
-  {"sleep",              lpdh_sleep              },
-  {"query",              lpdh_query_new          },
-  {"counter",            lpdh_counter_new        },
-  {"counter_dialog",     lpdh_counter_dialog     },
-  {"translate_path",     lpdh_path_translate     },
-  {"translate_name",     lpdh_translate_element  },
-  {"expand_path",        lpdh_path_expand        },
+  {"disabled",           lpdh_disabled                },
+  {"sleep",              lpdh_sleep                   },
+  {"query",              lpdh_query_new               },
+  {"counter",            lpdh_counter_new             },
+  {"counter_dialog",     lpdh_counter_dialog          },
+  {"translate_path",     lpdh_path_translate          },
+  {"translate_name",     lpdh_translate_element       },
+  {"expand_path",        lpdh_path_expand             },
+
   {NULL, NULL}
 };
 
@@ -982,10 +1365,53 @@ static const struct luaL_Reg lpdh_error_meth[] = {
   {NULL, NULL}
 };
 
+static const struct luaL_Reg lpsapi_lib[] = {
+  {"process",            lpsapi_process_new           },
+  {"performance_info",   lpsapi_get_performance_info  },
+  {"enum_processes",     lpsapi_enum_processes        },
+
+  {NULL, NULL}
+};
+
+static const struct luaL_Reg lpsapi_process_meth[] = {
+  {"__gc",         lpsapi_process_destroy       },
+  {"destroy",      lpsapi_process_destroy       },
+  {"destroyed",    lpsapi_process_destroyed     },
+  {"close",        lpsapi_process_close         },
+  {"closed",       lpsapi_process_closed        },
+  {"open",         lpsapi_process_open          },
+  {"module_name",  lpsapi_process_module_name   },
+  {"base_name",    lpsapi_process_base_name     },
+  {"memory_info",  lpsapi_process_memory_info   },
+  {"command_line", lpsapi_process_command_line  },
+  {"times",        lpsapi_process_times         },
+  {"pid",          lpsapi_process_pid           },
+  {NULL, NULL}
+};
+
+int luaopen_pdh_psapi(lua_State *L){
+  int top = lua_gettop(L);
+  lpsapi_set_process_privilege(GetCurrentProcess(), "SeDebugPrivilege", TRUE);
+  lpsapi_load_ntdll_();
+
+  lutil_createmetap(L, LPSAPI_PROCESS, lpsapi_process_meth,   0);
+  lua_settop(L, top);
+
+  lua_newtable(L);
+  luaL_setfuncs(L, lpsapi_lib, 0);
+
+  assert(top+1 == lua_gettop(L));
+  return 1;
+}
+
 int luaopen_pdh_core(lua_State*L){
+  int top = lua_gettop(L);
+
   lutil_createmetap(L, LPDH_QUERY,   lpdh_query_meth,   0);
   lutil_createmetap(L, LPDH_COUNTER, lpdh_counter_meth, 0);
   lutil_createmetap(L, LPDH_ERROR,   lpdh_error_meth,   0);
+  lua_settop(L, top);
+
   lua_newtable(L);
   luaL_setfuncs(L, lpdh_lib, 0);
 #define LPDH_PROCEED_ERROR_NODE(VALUE) lua_pushnumber(L, VALUE); lua_setfield(L, -2, #VALUE);
@@ -995,6 +1421,13 @@ int luaopen_pdh_core(lua_State*L){
 #undef LPDH_PROCEED_CONST_NODE
 #undef LPDH_PROCEED_ERROR_NODE
 
+  assert(top+1 == lua_gettop(L));
+  if(1 == luaopen_pdh_psapi(L)){
+    assert(top+2 == lua_gettop(L));
+    lua_setfield(L, -2, "psapi");
+  }
+  lua_settop(L, top+1);
+  
   // to correct work with error type
   LPDH_STATIC_ASSERT(sizeof(PDH_STATUS) <= sizeof(DWORD));
 
