@@ -1349,6 +1349,7 @@ static const struct luaL_Reg lpdh_lib[] = {
   {"translate_path",     lpdh_path_translate          },
   {"translate_name",     lpdh_translate_element       },
   {"expand_path",        lpdh_path_expand             },
+  {"counter_names",      lpdh_load_en_counter_names   },
 
   {NULL, NULL}
 };
