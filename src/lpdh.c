@@ -168,7 +168,10 @@ typedef struct lpdh_error_tag{
   LPDH_PROCEED_ERROR_NODE(ERROR_HANDLE_DISK_FULL)                                  \
   LPDH_PROCEED_ERROR_NODE(ERROR_NOT_SUPPORTED)                                     \
   LPDH_PROCEED_ERROR_NODE(ERROR_MORE_DATA)                                         \
-
+  LPDH_PROCEED_ERROR_NODE(ERROR_NETWORK_ACCESS_DENIED)                             \
+  LPDH_PROCEED_ERROR_NODE(ERROR_BAD_NET_NAME)                                      \
+  LPDH_PROCEED_ERROR_NODE(ERROR_INVALID_PARAMETER)                                 \
+ 
 //}
 
 //{
@@ -1002,12 +1005,12 @@ static DWORD lpsapi_enum_processes(lua_State *L){
   //! @todo implement callback
   DWORD *pids, bytes, pids_size = 128 * sizeof(DWORD);
   int i, n;
+  int cbIndex = lua_isnone(L, 1)?0:1;
 
   while(1){
     pids = (DWORD*)malloc(pids_size);
     if(!pids){
-      //! @fixme use system error
-      return lpdh_error_pdh(L, PDH_MEMORY_ALLOCATION_FAILURE);
+      return lpdh_error_system(L, ERROR_NOT_ENOUGH_MEMORY);
     }
 
     if(!EnumProcesses(pids, pids_size, &bytes)){
@@ -1022,8 +1025,29 @@ static DWORD lpsapi_enum_processes(lua_State *L){
       continue;
     }
 
-    lua_newtable(L);
     n = bytes / sizeof(DWORD);
+
+    if(cbIndex){
+      int ret; int top = lua_gettop(L);
+      for(i = 0;i<n;++i){
+        assert(top == lua_gettop(L));
+        lua_pushvalue(L, cbIndex);
+        lua_pushnumber(L, i);
+        lua_pushnumber(L, pids[i]);
+        ret = lua_pcall(L, 2, LUA_MULTRET, 0);
+        if(ret){
+          free(pids);
+          return lua_error(L);
+        }
+        if(lua_gettop(L) > top){
+          free(pids);
+          return lua_gettop(L) - top;
+        }
+      }
+      return lpdh_pass(L);
+    }
+
+    lua_newtable(L);
     for(i = 0;i<n;++i){
       lua_pushnumber(L, pids[i]);
       lua_rawseti(L, -2, i + 1);
@@ -1220,14 +1244,12 @@ static int lpsapi_process_command_line(lua_State *L){
       size = upp.CommandLine.Length;
       buffer = (WCHAR*)malloc(size);
       if(!buffer){
-        //! @fixme use system error
-        return lpdh_error_pdh(L, PDH_MEMORY_ALLOCATION_FAILURE);
+        return lpdh_error_system(L, ERROR_NOT_ENOUGH_MEMORY);
       }
       cmd_line = (char*)malloc(size / sizeof(WCHAR));
       if(!cmd_line){
         free(buffer);
-        //! @fixme use system error
-        return lpdh_error_pdh(L, PDH_MEMORY_ALLOCATION_FAILURE);
+        return lpdh_error_system(L, ERROR_NOT_ENOUGH_MEMORY);
       }
       if(!ReadProcessMemory(process->handle, upp.CommandLine.Buffer, buffer, size, &size)){
         free(cmd_line);

@@ -8,10 +8,16 @@ lake.define_need('pdh', function()
   }
 end)
 
+lake.define_need('psapi', function()
+  return {
+    libs = {'psapi', 'advapi32'};
+  }
+end)
+
 pdh = c.shared{'core',
   base     = 'src',
   src      = {'*.c'},
-  needs    = {LUA_NEED, 'pdh', 'windows'},
+  needs    = {LUA_NEED, 'pdh', 'psapi'},
   def      = 'lpdh.def',
   defines  = DEFINES,
   dynamic  = DYNAMIC,
@@ -21,7 +27,9 @@ pdh = c.shared{'core',
 target('build', pdh)
 
 install = target('install', {
+  file.group{odir = LIBDIR; src = J('lua','*'); recurse=true};
   file.group{odir = J(LIBDIR, PROJECT);  src = pdh};
+  file.group{odir = J(ROOT, 'examples'); src = J('examples','*'); recurse=true};
 })
 
 target('test', install, function()

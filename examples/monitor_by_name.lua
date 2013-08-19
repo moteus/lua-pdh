@@ -2,7 +2,7 @@
 local PROCESS_NAME = arg[1] or "notepad"
 local COUNTER_NAME = arg[2] or "% Processor Time"
 
-local pdh = require "pdh.core"
+local pdh = require "pdh"
 
 local T = pdh.translate_path
 

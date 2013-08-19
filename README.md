@@ -1,5 +1,5 @@
 ```Lua
-local pdh = require "pdh.core"
+local pdh = require "pdh"
 
 assert(not pdh.disabled())
 
