@@ -13,6 +13,10 @@ description = {
   maintainer = "Alexey Melnichuk",
 }
 
+supported_platforms = {
+  "windows"
+}
+
 dependencies = {
   "lua >= 5.1, < 5.3",
 }
@@ -20,16 +24,14 @@ dependencies = {
 build = {
   type = "builtin",
   copy_directories = {"examples"},
-  platforms = { windows = {
-    modules = {
-      [ "pdh.core"    ] = {
-        sources = {
-          'src/l52util.c', 'src/lpdh.c',
-        };
-        libraries = {'pdh', 'psapi', 'advapi32'};
+  modules = {
+    [ "pdh.core"    ] = {
+      sources = {
+        'src/l52util.c', 'src/lpdh.c',
       };
-      [ "pdh"         ] = "lua/pdh.lua";
-      [ "pdh.psapi"   ] = "lua/pdh/psapi.lua";
-    }
-  }}
+      libraries = {'pdh', 'psapi', 'advapi32'};
+    };
+    [ "pdh"         ] = "lua/pdh.lua";
+    [ "pdh.psapi"   ] = "lua/pdh/psapi.lua";
+  }
 }
