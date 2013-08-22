@@ -4,6 +4,7 @@
 #include <Pdh.h>
 #include <PdhMsg.h>
 
+#define LPDH_EXPORT __declspec(dllexport)
 
 #define LPDH_STATIC_ASSERT(A) {(int(*)[(A)?1:0])0;}
 
@@ -509,7 +510,7 @@ static int lpdh_path_translate(lua_State *L){
 
   { // parse
     const char *path = lutil_isudatap(L, 1, LPDH_COUNTER)?lpdh_getcounter_at(L,1)->path:luaL_checkstring(L, 1);
-    size_t size = 0;
+    DWORD size = 0;
 
     Status = PdhParseCounterPath(path, NULL, &size, 0);
     if(Status != PDH_MORE_DATA){
@@ -542,7 +543,7 @@ static int lpdh_path_translate(lua_State *L){
 
   { // make
     char CounterPathBuffer[PDH_MAX_COUNTER_PATH];
-    size_t CounterPathLength;
+    DWORD CounterPathLength;
     CounterPathLength = sizeof(CounterPathBuffer);
 
     Status = PdhMakeCounterPath(elements, CounterPathBuffer, &CounterPathLength, 0);
@@ -682,7 +683,7 @@ static int lpdh_counter_remove(lua_State *L){
 
 #define LPDH_IS_CSTATUS_VALID(S) (((S)==PDH_CSTATUS_VALID_DATA)||((S)==PDH_CSTATUS_NEW_DATA))
 
-#define define_counter_as_XXX(CNAME, TNAME)                                                 \
+#define define_counter_as_XXX(CNAME, TNAME, MNAME)                                          \
 static int lpdh_counter_as_##TNAME(lua_State *L){                                           \
   lpdh_counter_t *counter = lpdh_getcounter_at(L, 1);                                       \
   PDH_FMT_COUNTERVALUE value;                                                               \
@@ -698,19 +699,19 @@ static int lpdh_counter_as_##TNAME(lua_State *L){                               
   }                                                                                         \
                                                                                             \
   if(LPDH_IS_CSTATUS_VALID(value.CStatus)){                                                 \
-    lua_pushnumber(L, value.##TNAME##Value);                                                \
+    lua_pushnumber(L, value.MNAME);                                                         \
     return 1;                                                                               \
   }                                                                                         \
   return lpdh_error_pdh(L, value.CStatus);                                                  \
 }
 
-define_counter_as_XXX(DOUBLE, double);
-define_counter_as_XXX(LONG,   long  );
-define_counter_as_XXX(LARGE,  large );
+define_counter_as_XXX(DOUBLE, double, doubleValue );
+define_counter_as_XXX(LONG,   long  , longValue   );
+define_counter_as_XXX(LARGE,  large , largeValue  );
 
 #undef define_counter_as_XXX
 
-#define define_counter_as_XXX_array(CNAME, TNAME)                                           \
+#define define_counter_as_XXX_array(CNAME, TNAME, MNAME)                                    \
 static int lpdh_counter_as_##TNAME##_array(lua_State *L){                                   \
   lpdh_counter_t *counter = lpdh_getcounter_at(L, 1);                                       \
                                                                                             \
@@ -773,7 +774,7 @@ static int lpdh_counter_as_##TNAME##_array(lua_State *L){                       
       lua_pushstring(L, items[i].szName);                                                   \
       lua_rawseti(L, -2, 1);                                                                \
       if(LPDH_IS_CSTATUS_VALID(value->CStatus)){                                            \
-        lua_pushnumber(L, value->##TNAME##Value);                                           \
+        lua_pushnumber(L, value->MNAME);                                                    \
       }                                                                                     \
       else{                                                                                 \
         lpdh_error_push(L, LPDH_ERROR_PDH, value->CStatus);                                 \
@@ -787,7 +788,7 @@ static int lpdh_counter_as_##TNAME##_array(lua_State *L){                       
       lua_pushnumber(L, i + 1);                                                             \
       lua_pushstring(L, items[i].szName);                                                   \
       if(LPDH_IS_CSTATUS_VALID(value->CStatus)){                                            \
-        lua_pushnumber(L, value->##TNAME##Value);                                           \
+        lua_pushnumber(L, value->MNAME);                                                    \
       }                                                                                     \
       else{                                                                                 \
         lpdh_error_push(L, LPDH_ERROR_PDH, value->CStatus);                                 \
@@ -807,9 +808,9 @@ static int lpdh_counter_as_##TNAME##_array(lua_State *L){                       
   return 1;                                                                                 \
 }                                                                                           \
 
-define_counter_as_XXX_array(DOUBLE, double);
-define_counter_as_XXX_array(LONG,   long  );
-define_counter_as_XXX_array(LARGE,  large );
+define_counter_as_XXX_array(DOUBLE, double, doubleValue );
+define_counter_as_XXX_array(LONG,   long  , longValue   );
+define_counter_as_XXX_array(LARGE,  large , largeValue  );
 
 #undef define_counter_as_XXX_array
 
@@ -901,7 +902,59 @@ static int lpdh_sleep(lua_State *L){
 #define SET_FIELD(L, INFO, N) {lua_pushnumber(L, ((INFO).N)); lua_setfield(L, -2, #N);}
 
 #include <Psapi.h>
-#include <Winternl.h>
+
+#ifdef _MSC_VER
+#  include <Winternl.h>
+#else
+
+#include <ntdef.h>
+
+typedef enum _PROCESSINFOCLASS {
+    ProcessBasicInformation = 0,
+    ProcessWow64Information = 26
+} PROCESSINFOCLASS;
+
+typedef VOID (NTAPI *PPS_POST_PROCESS_INIT_ROUTINE) ( VOID );
+
+typedef struct _PEB_LDR_DATA {
+    BYTE Reserved1[8];
+    PVOID Reserved2[3];
+    LIST_ENTRY InMemoryOrderModuleList;
+} PEB_LDR_DATA, *PPEB_LDR_DATA;
+
+typedef struct _RTL_USER_PROCESS_PARAMETERS {
+    BYTE Reserved1[16];
+    PVOID Reserved2[10];
+    UNICODE_STRING ImagePathName;
+    UNICODE_STRING CommandLine;
+} RTL_USER_PROCESS_PARAMETERS, *PRTL_USER_PROCESS_PARAMETERS;
+
+typedef struct _PEB {
+    BYTE Reserved1[2];
+    BYTE BeingDebugged;
+    BYTE Reserved2[1];
+    PVOID Reserved3[2];
+    PPEB_LDR_DATA Ldr;
+    PRTL_USER_PROCESS_PARAMETERS ProcessParameters;
+    BYTE Reserved4[104];
+    PVOID Reserved5[52];
+    PPS_POST_PROCESS_INIT_ROUTINE PostProcessInitRoutine;
+    BYTE Reserved6[128];
+    PVOID Reserved7[1];
+    ULONG SessionId;
+} PEB, *PPEB;
+
+typedef struct _PROCESS_BASIC_INFORMATION {
+    PVOID Reserved1;
+    PPEB PebBaseAddress;
+    PVOID Reserved2[2];
+    ULONG_PTR UniqueProcessId;
+    PVOID Reserved3;
+} PROCESS_BASIC_INFORMATION;
+
+typedef PROCESS_BASIC_INFORMATION *PPROCESS_BASIC_INFORMATION;
+
+#endif 
 
 typedef NTSTATUS (NTAPI *pfnNtQueryInformationProcess)(
   IN  HANDLE ProcessHandle,
@@ -1001,7 +1054,7 @@ static int lpsapi_get_performance_info(lua_State *L){
   return 1;
 }
 
-static DWORD lpsapi_enum_processes(lua_State *L){
+static int lpsapi_enum_processes(lua_State *L){
   //! @todo implement callback
   DWORD *pids, bytes, pids_size = 128 * sizeof(DWORD);
   int i, n;
@@ -1412,7 +1465,7 @@ static const struct luaL_Reg lpsapi_process_meth[] = {
   {NULL, NULL}
 };
 
-int luaopen_pdh_psapi(lua_State *L){
+LPDH_EXPORT int luaopen_pdh_psapi(lua_State *L){
   int top = lua_gettop(L);
   lpsapi_set_process_privilege(GetCurrentProcess(), "SeDebugPrivilege", TRUE);
   lpsapi_load_ntdll_();
@@ -1427,7 +1480,7 @@ int luaopen_pdh_psapi(lua_State *L){
   return 1;
 }
 
-int luaopen_pdh_core(lua_State*L){
+LPDH_EXPORT int luaopen_pdh_core(lua_State*L){
   int top = lua_gettop(L);
 
   lutil_createmetap(L, LPDH_QUERY,   lpdh_query_meth,   0);
