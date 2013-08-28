@@ -10,7 +10,6 @@
 
 static const char *LPDH_QUERY   = "PDH Query";
 static const char *LPDH_COUNTER = "PDH Counter";
-static const char *LPDH_VALUE   = "PDH Value";
 static const char *LPDH_ERROR   = "PDH Error";
 static const char *LPDH_COUNTER_NAMES = "PDH Counter names";
 
@@ -372,8 +371,9 @@ static int lpdh_disabled(lua_State *L){
     DWORD status, value;
     if(!ptr->path) break;
     status = lpdh_reg_read_dword(ptr->key, ptr->path, LPDH_DISABLED_REG_NAME, &value);
-    if(status == ERROR_SUCCESS)
+    if(status == ERROR_SUCCESS){
       if(value) return lpdh_pass(L);
+    }
     else if(status != ERROR_FILE_NOT_FOUND)
       return lpdh_error_system(L, status);
   }
@@ -403,7 +403,6 @@ static DWORD lpdh_push_en_counter_names(lua_State *L){
 
       if(Status == ERROR_SUCCESS){
         const char *key=buf, *value;
-        int i = 0;
         lua_newtable(L);
         while(*key){
           value = key + strlen(key)+1;
@@ -617,7 +616,7 @@ static int lpdh_translate_element(lua_State *L){
     if(n != 1) return n;
   }
   
-  Status = lpdh_translate_name(L, 0, name, &Index, &result);
+  Status = lpdh_translate_name(L, machineName, name, &Index, &result);
 
   if(ERROR_SUCCESS != Status){
     if(result) free(result);
@@ -1167,6 +1166,7 @@ static int lpsapi_process_open(lua_State *L){
 
 static int lpsapi_process_new(lua_State *L){
   lpsapi_process_t *process = lpsapi_process_alloc(L);
+  (void)process;
   lua_insert(L, 1);
   return lpsapi_process_open(L);
 }

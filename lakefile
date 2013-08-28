@@ -2,6 +2,8 @@ PROJECT = 'pdh'
 
 INITLAKEFILE()
 
+WINVER = "0x0" .. IF(WINDOWS, WINVER or '502', '')
+
 lake.define_need('pdh', function()
   return {
     libs = {'pdh'};
@@ -19,7 +21,13 @@ pdh = c.shared{'core',
   src      = {'*.c'},
   needs    = {LUA_NEED, 'pdh', 'psapi'},
   def      = 'lpdh.def',
-  defines  = DEFINES,
+  defines  = L{
+    DEFINES;
+    IF(WINDOWS,{
+      "WINVER="       .. WINVER;
+      "_WIN32_WINNT=" .. WINVER;
+    });
+  },
   dynamic  = DYNAMIC,
   strip    = true,
 }
