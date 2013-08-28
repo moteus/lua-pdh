@@ -101,8 +101,12 @@ while true do
     local gauges = {}
     for counter_name, counter in pairs(counters) do
       if counter.config.array then
-        ok, status = counter[1]:as_double_array(function(i, name, value)
+        ok, status = counter[1]:as_double_array(function(i, name, value, status)
           local full_counter_name = counter_name .. "." .. name
+          if status then
+            LOG.error("get value error for `", full_counter_name, "` :", status)
+            return
+          end
           LOG.debug(full_counter_name, ' = ', value)
           gauges[full_counter_name] = value;
         end)

@@ -20,8 +20,8 @@ dependencies = {
   "lua >= 5.1, < 5.3",
 }
 
--- WINXP
-local WINVER = "0x0501"
+-- WINXP SP2
+local WINVER = "0x0502"
 
 build = {
   type = "builtin",
