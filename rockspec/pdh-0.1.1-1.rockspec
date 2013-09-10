@@ -1,9 +1,9 @@
 package = "pdh"
-version = "scm-0"
+version = "0.1.1-1"
 
 source = {
-  url = "https://github.com/moteus/lua-pdh/archive/master.zip",
-  dir = "lua-pdh-master",
+  url = "https://github.com/moteus/lua-pdh/archive/v0.1.1.zip",
+  dir = "lua-pdh-0.1.1",
 }
 
 description = {
