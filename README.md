@@ -16,3 +16,6 @@ while true do
   pdh.sleep(1000)
 end
 ```
+
+[![Bitdeli Badge](https://d2weczhvl823v0.cloudfront.net/moteus/lua-pdh/trend.png)](https://bitdeli.com/free "Bitdeli Badge")
+
