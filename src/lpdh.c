@@ -635,8 +635,8 @@ static int lpdh_translate_element(lua_State *L){
 
 static lpdh_counter_t *lpdh_getcounter_at (lua_State *L, int i) {
   lpdh_counter_t *counter = (lpdh_counter_t *)lutil_checkudatap (L, i, LPDH_COUNTER);
-  luaL_argcheck (L, counter != NULL, 1, "PDH Counter expected");
-  luaL_argcheck (L, !(counter->flags & FLAG_DESTROYED), 1, "PDH Counter is destroyed");
+  luaL_argcheck (L, counter != NULL, i, "PDH Counter expected");
+  luaL_argcheck (L, !(counter->flags & FLAG_DESTROYED), i, "PDH Counter is destroyed");
   return counter;
 }
 
