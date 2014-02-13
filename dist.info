@@ -1,0 +1,12 @@
+name = "pdh"
+version = "0.1.1"
+
+desc = "Lua binding to Microsoft Performance Data Helper (PDH) library"
+author = "Alexey Melnichuk"
+license = "MIT/X11"
+url = "https://github.com/moteus/lua-pdh"
+maintainer = "Alexey Melnichuk"
+
+depends = {
+  "lua >= 5.1"
+}
