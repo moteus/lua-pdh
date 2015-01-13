@@ -1,5 +1,5 @@
 name = "pdh"
-version = "0.1.1"
+version = "0.1.2"
 
 desc = "Lua binding to Microsoft Performance Data Helper (PDH) library"
 author = "Alexey Melnichuk"
