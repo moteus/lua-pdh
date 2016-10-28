@@ -1161,7 +1161,7 @@ static lpsapi_process_t *lpsapi_process_alloc(lua_State *L){
 
 static int lpsapi_process_open(lua_State *L){
   lpsapi_process_t *process = lpsapi_getprocess_at(L, 1, -1);
-  DWORD pid, accessFlags = PROCESS_QUERY_INFORMATION | PROCESS_VM_READ;
+  DWORD pid, accessFlags = PROCESS_QUERY_INFORMATION | PROCESS_VM_READ | SYNCHRONIZE;
   int top = lua_gettop(L);
 
   if(process->flags & FLAG_OPEN){
@@ -1383,6 +1383,26 @@ static int lpsapi_process_parent_pid(lua_State *L){
   return 1;
 }
 
+static int lpsapi_process_exit_code(lua_State *L){
+  lpsapi_process_t *process = lpsapi_getprocess_at(L, 1, 1);
+  DWORD code;
+  BOOL ret = GetExitCodeProcess(process->handle, &code);
+  if(!ret){
+    return lpdh_error_system(L, GetLastError());
+  }
+
+  lua_pushinteger(L, code);
+  return 1;
+}
+
+static int lpsapi_process_alive(lua_State *L){
+  lpsapi_process_t *process = lpsapi_getprocess_at(L, 1, 1);
+  DWORD ret = WaitForSingleObject(process->handle, 0);
+  lua_pushboolean(L, (ret == WAIT_TIMEOUT) ? 1 : 0);
+  lua_pushinteger(L, ret);
+  return 2;
+}
+
 //}
 
 #undef SET_FIELD
@@ -1506,6 +1526,8 @@ static const struct luaL_Reg lpsapi_process_meth[] = {
   {"times",        lpsapi_process_times         },
   {"pid",          lpsapi_process_pid           },
   {"parent_pid",   lpsapi_process_parent_pid    },
+  {"exit_code",    lpsapi_process_exit_code     },
+  {"alive",        lpsapi_process_alive         },
   {NULL, NULL}
 };
 
