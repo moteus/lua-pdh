@@ -4,17 +4,14 @@
 #include <Pdh.h>
 #include <PdhMsg.h>
 
-#define VSSC_CONCAT_STATIC_ASSERT_IMPL_(x, y) VSSC_CONCAT1_STATIC_ASSERT_IMPL_ (x, y)
-#define VSSC_CONCAT1_STATIC_ASSERT_IMPL_(x, y) x##y
-#define VSSC_STATIC_ASSERT(expr) typedef char VSSC_CONCAT_STATIC_ASSERT_IMPL_(static_assert_failed_at_line_, __LINE__) [(expr) ? 1 : -1]
-
-#define ASSERT_SAME_SIZE(a, b) VSSC_STATIC_ASSERT( sizeof(a) == sizeof(b) )
-#define ASSERT_SAME_OFFSET(a, am, b, bm) VSSC_STATIC_ASSERT( (offsetof(a,am)) == (offsetof(b,bm)) )
-
-
 #define LPDH_EXPORT __declspec(dllexport)
 
-#define LPDH_STATIC_ASSERT(A) {(int(*)[(A)?1:0])0;}
+#define LPDH_CONCAT_STATIC_ASSERT_IMPL_(x, y) LPDH_CONCAT1_STATIC_ASSERT_IMPL_ (x, y)
+#define LPDH_CONCAT1_STATIC_ASSERT_IMPL_(x, y) x##y
+#define LPDH_STATIC_ASSERT(expr) typedef char LPDH_CONCAT_STATIC_ASSERT_IMPL_(static_assert_failed_at_line_, __LINE__) [(expr) ? 1 : -1]
+
+#define ASSERT_SAME_SIZE(a, b) LPDH_STATIC_ASSERT( sizeof(a) == sizeof(b) )
+#define ASSERT_SAME_OFFSET(a, am, b, bm) LPDH_STATIC_ASSERT( (offsetof(a,am)) == (offsetof(b,bm)) )
 
 static const char *LPDH_QUERY   = "PDH Query";
 static const char *LPDH_COUNTER = "PDH Counter";
@@ -1292,11 +1289,12 @@ static int lpsapi_process_base_name(lua_State *L){
 static int lpsapi_process_command_line(lua_State *L){
   lpsapi_process_t *process = lpsapi_getprocess_at(L, 1, 1);
   NTSTATUS Status;
-  DWORD size;
+  SIZE_T size;
   PPEB ppeb;
 
   {
     PROCESS_BASIC_INFORMATION pbi;
+    ULONG size;
     Status = pNtQueryInformationProcess(
       process->handle, ProcessBasicInformation,
       &pbi, sizeof(pbi), &size
