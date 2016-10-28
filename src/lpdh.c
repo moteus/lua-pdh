@@ -4,6 +4,14 @@
 #include <Pdh.h>
 #include <PdhMsg.h>
 
+#define VSSC_CONCAT_STATIC_ASSERT_IMPL_(x, y) VSSC_CONCAT1_STATIC_ASSERT_IMPL_ (x, y)
+#define VSSC_CONCAT1_STATIC_ASSERT_IMPL_(x, y) x##y
+#define VSSC_STATIC_ASSERT(expr) typedef char VSSC_CONCAT_STATIC_ASSERT_IMPL_(static_assert_failed_at_line_, __LINE__) [(expr) ? 1 : -1]
+
+#define ASSERT_SAME_SIZE(a, b) VSSC_STATIC_ASSERT( sizeof(a) == sizeof(b) )
+#define ASSERT_SAME_OFFSET(a, am, b, bm) VSSC_STATIC_ASSERT( (offsetof(a,am)) == (offsetof(b,bm)) )
+
+
 #define LPDH_EXPORT __declspec(dllexport)
 
 #define LPDH_STATIC_ASSERT(A) {(int(*)[(A)?1:0])0;}
@@ -959,6 +967,23 @@ typedef PROCESS_BASIC_INFORMATION *PPROCESS_BASIC_INFORMATION;
 
 #endif 
 
+typedef struct _PROCESS_BASIC_INFORMATION_DECODE{
+  ULONG_PTR ExitStatus;
+  PPEB PebBaseAddress;
+  ULONG_PTR AffinityMask;
+  ULONG_PTR BasePriority;
+  ULONG_PTR UniqueProcessId;
+  ULONG_PTR InheritedFromUniqueProcessId;
+} PROCESS_BASIC_INFORMATION_DECODE;
+typedef PROCESS_BASIC_INFORMATION_DECODE *PPROCESS_BASIC_INFORMATION_DECODE;
+
+ASSERT_SAME_SIZE(PROCESS_BASIC_INFORMATION_DECODE, PROCESS_BASIC_INFORMATION);
+ASSERT_SAME_OFFSET(PROCESS_BASIC_INFORMATION_DECODE, ExitStatus,                   PROCESS_BASIC_INFORMATION, Reserved1       );
+ASSERT_SAME_OFFSET(PROCESS_BASIC_INFORMATION_DECODE, PebBaseAddress,               PROCESS_BASIC_INFORMATION, PebBaseAddress  );
+ASSERT_SAME_OFFSET(PROCESS_BASIC_INFORMATION_DECODE, AffinityMask,                 PROCESS_BASIC_INFORMATION, Reserved2       );
+ASSERT_SAME_OFFSET(PROCESS_BASIC_INFORMATION_DECODE, UniqueProcessId,              PROCESS_BASIC_INFORMATION, UniqueProcessId );
+ASSERT_SAME_OFFSET(PROCESS_BASIC_INFORMATION_DECODE, InheritedFromUniqueProcessId, PROCESS_BASIC_INFORMATION, Reserved3       );
+
 typedef NTSTATUS (NTAPI *pfnNtQueryInformationProcess)(
   IN  HANDLE ProcessHandle,
   IN  PROCESSINFOCLASS ProcessInformationClass,
@@ -1344,6 +1369,22 @@ static int lpsapi_process_pid(lua_State *L){
   return 1;
 }
 
+static int lpsapi_process_parent_pid(lua_State *L){
+  lpsapi_process_t *process = lpsapi_getprocess_at(L, 1, 1);
+  DWORD size;
+  PROCESS_BASIC_INFORMATION pbi;
+  PPROCESS_BASIC_INFORMATION_DECODE pbid = (PPROCESS_BASIC_INFORMATION_DECODE) &pbi;
+  NTSTATUS Status = pNtQueryInformationProcess(
+    process->handle, ProcessBasicInformation,
+    &pbi, sizeof(pbi), &size
+  );
+  if(Status != ERROR_SUCCESS){
+    return lpdh_error_system(L, Status);
+  }
+  lua_pushnumber(L, pbid->InheritedFromUniqueProcessId);
+  return 1;
+}
+
 //}
 
 #undef SET_FIELD
@@ -1466,6 +1507,7 @@ static const struct luaL_Reg lpsapi_process_meth[] = {
   {"command_line", lpsapi_process_command_line  },
   {"times",        lpsapi_process_times         },
   {"pid",          lpsapi_process_pid           },
+  {"parent_pid",   lpsapi_process_parent_pid    },
   {NULL, NULL}
 };
 
