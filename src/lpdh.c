@@ -192,6 +192,11 @@ static lpdh_counter_t *lpdh_getcounter_at (lua_State *L, int i);
 
 //{ Error
 
+// to correct work with error type
+LPDH_STATIC_ASSERT(sizeof(PDH_STATUS) <= sizeof(DWORD));
+
+LPDH_STATIC_ASSERT(sizeof(((lpdh_error_t*)0)->status) <= (sizeof(void*)));
+
 static lpdh_error_t *lpdh_geterror_at (lua_State *L, int i) {
   lpdh_error_t *err = (lpdh_error_t *)lutil_checkudatap (L, i, LPDH_ERROR);
   luaL_argcheck (L, err != NULL, 1, "PDH Error expected");
@@ -281,7 +286,6 @@ static int lpdh_error_push_mnemo(lua_State *L, lpdh_error_t *err, const char* de
 
 static void lpdh_error_pushstring(lua_State *L, lpdh_error_t *err){
   void *ptr_status = (void*)err->status;
-  LPDH_STATIC_ASSERT(sizeof(err->status) <= (sizeof(void*)));
   lpdh_error_push_message(L, err, "unknown");
   lua_pushfstring(L, "[%s] %s (0x%p)",
     lpdh_error_mnemo_(err, "UNKNOWN"),
@@ -1387,7 +1391,7 @@ static int lpsapi_process_exit_code(lua_State *L){
   lpsapi_process_t *process = lpsapi_getprocess_at(L, 1, 1);
   DWORD code;
   BOOL ret = GetExitCodeProcess(process->handle, &code);
-  if(!ret){
+  if (!ret) {
     return lpdh_error_system(L, GetLastError());
   }
 
@@ -1569,9 +1573,6 @@ LPDH_EXPORT int luaopen_pdh_core(lua_State*L){
     lua_setfield(L, -2, "psapi");
   }
   lua_settop(L, top+1);
-  
-  // to correct work with error type
-  LPDH_STATIC_ASSERT(sizeof(PDH_STATUS) <= sizeof(DWORD));
 
   return 1;
 }
