@@ -21,9 +21,6 @@ dependencies = {
   "lua >= 5.1, < 5.4",
 }
 
--- WINXP SP2
-local WINVER = "0x0502"
-
 build = {
   type = "builtin",
   copy_directories = {"examples"},
@@ -33,7 +30,6 @@ build = {
         'src/l52util.c', 'src/lpdh.c',
       };
       libraries = {'pdh', 'psapi', 'advapi32'};
-      defines   = {"WINVER=" .. WINVER, "_WIN32_WINNT=" .. WINVER}
     };
     [ "pdh"         ] = "lua/pdh.lua";
     [ "pdh.psapi"   ] = "lua/pdh/psapi.lua";
