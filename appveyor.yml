@@ -24,7 +24,7 @@ before_build:
 build_script:
   # `ld` seems can not make output dir
   - mkdir environ
-  - luarocks make rockspecs\pdh-scm-0.rockspec
+  - luarocks make rockspec\pdh-scm-0.rockspec
 
 before_test:
   - luarocks show luacheck >nul 2>&1 || luarocks install luacheck

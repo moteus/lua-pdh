@@ -1,3 +1,10 @@
+# Binding to Microsoft Performance Data Helper (PDH) library
+========
+[![Licence](http://img.shields.io/badge/Licence-MIT-brightgreen.svg)](LICENCE.txt)
+[![Build status](https://ci.appveyor.com/api/projects/status/2m6mhmam77sllv19/branch/master?svg=true)](https://ci.appveyor.com/project/moteus/lua-pdh/branch/master)
+
+## Usage
+
 ```Lua
 local pdh = require "pdh"
 
@@ -18,4 +25,3 @@ end
 ```
 
 [![Bitdeli Badge](https://d2weczhvl823v0.cloudfront.net/moteus/lua-pdh/trend.png)](https://bitdeli.com/free "Bitdeli Badge")
-
