@@ -9,7 +9,7 @@ environment:
 platform:
   - x64
   - x86
-  - mingw
+  # - mingw
 
 before_build:
   - set PATH=C:\Python27\Scripts;%PATH%
@@ -23,7 +23,7 @@ before_build:
 
 build_script:
   # `ld` seems can not make output dir
-  - mkdir environ
+  - if /I "%platform%"=="mingw" mkdir pdh
   - luarocks make rockspec\pdh-scm-0.rockspec
 
 before_test:
