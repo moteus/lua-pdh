@@ -4,6 +4,11 @@
 #include <Pdh.h>
 #include <PdhMsg.h>
 
+#define _LPDH_NAME      "pdh"
+#define _LPDH_VERSION   "0.1.3"
+#define _LPDH_COPYRIGHT "Copyright (C) 2013-2016 Alexey Melnichuk"
+#define _LPDH_LICENSE   "MIT"
+
 #define LPDH_EXPORT __declspec(dllexport)
 
 #define LPDH_CONCAT_STATIC_ASSERT_IMPL_(x, y) LPDH_CONCAT1_STATIC_ASSERT_IMPL_ (x, y)
@@ -1566,6 +1571,11 @@ LPDH_EXPORT int luaopen_pdh_core(lua_State*L){
   LPDH_PROCEED_CONST()
 #undef LPDH_PROCEED_CONST_NODE
 #undef LPDH_PROCEED_ERROR_NODE
+
+  lua_pushliteral(L, _LPDH_NAME     ); lua_setfield(L, -2, "_NAME"     );
+  lua_pushliteral(L, _LPDH_VERSION  ); lua_setfield(L, -2, "_VERSION"  );
+  lua_pushliteral(L, _LPDH_COPYRIGHT); lua_setfield(L, -2, "_COPYRIGHT");
+  lua_pushliteral(L, _LPDH_LICENSE  ); lua_setfield(L, -2, "_LICENSE"  );
 
   assert(top+1 == lua_gettop(L));
   if(1 == luaopen_pdh_psapi(L)){
